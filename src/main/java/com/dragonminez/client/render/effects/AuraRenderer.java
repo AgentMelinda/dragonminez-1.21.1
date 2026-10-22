@@ -14,6 +14,7 @@ import com.dragonminez.common.stats.extras.ActionMode;
 import com.dragonminez.common.stats.StatsCapability;
 import com.dragonminez.common.stats.StatsData;
 import com.dragonminez.common.stats.StatsProvider;
+import com.dragonminez.common.compat.SableCompat;
 import com.dragonminez.common.util.TransformationsHelper;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -101,16 +102,31 @@ public class AuraRenderer {
 	private static void applyAndDraw(VertexBuffer mesh, PoseStack poseStack, Matrix4f projectionMatrix, ShaderInstance shader,
 									 ResourceLocation texture, float[] color, float alpha, float speed, boolean ground, boolean ignoreSceneDepth) {
 		mesh.bind();
+		// Both flags are captured and restored exactly. An earlier version disabled the stencil
+		// test and never re-enabled it, so after the local third-person aura drew, stencil testing
+		// stayed off for everything rendered afterwards — including DMZ's own stencil effects,
+		// which clear GL_STENCIL_BUFFER_BIT and then rely on the test being live. Restoring the
+		// prior value rather than forcing "enabled" matters because this runs mid-frame and the
+		// caller's state is not ours to assume.
+		boolean hadDepthTest = false;
+		boolean hadStencilTest = false;
 		if (ignoreSceneDepth) {
 			// RenderType state can be reapplied by VertexBuffer.drawWithShader on 1.21.
 			// Force this at the actual draw boundary for the local third-person aura.
+			hadDepthTest = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);
+			hadStencilTest = GL11.glIsEnabled(GL11.GL_STENCIL_TEST);
 			GL11.glDisable(GL11.GL_DEPTH_TEST);
 			GL11.glDisable(GL11.GL_STENCIL_TEST);
 		}
 		mesh.drawWithShader(poseStack.last().pose(), projectionMatrix, shader);
 		if (ignoreSceneDepth) {
-			GL11.glEnable(GL11.GL_DEPTH_TEST);
-			GL11.glDepthFunc(GL11.GL_LEQUAL);
+			if (hadDepthTest) {
+				GL11.glEnable(GL11.GL_DEPTH_TEST);
+				GL11.glDepthFunc(GL11.GL_LEQUAL);
+			}
+			if (hadStencilTest) {
+				GL11.glEnable(GL11.GL_STENCIL_TEST);
+			}
 		}
 	}
 
@@ -277,18 +293,7 @@ public class AuraRenderer {
 					}
 
 					if (hasLightning) {
-						PoseStack fpStack = new PoseStack();
-						Vec3 cameraPos = mc.gameRenderer.getMainCamera().getPosition();
-						double lerpX = Mth.lerp(partialTick, localPlayer.xo, localPlayer.getX());
-						double lerpY = Mth.lerp(partialTick, localPlayer.yo, localPlayer.getY());
-						double lerpZ = Mth.lerp(partialTick, localPlayer.zo, localPlayer.getZ());
-
-						fpStack.translate(lerpX - cameraPos.x, lerpY - cameraPos.y, lerpZ - cameraPos.z);
-						float bodyRot = Mth.lerp(partialTick, localPlayer.yBodyRotO, localPlayer.yBodyRot);
-						fpStack.mulPose(Axis.YP.rotationDegrees(-bodyRot + 180f));
-						fpStack.scale(-1.0F, 1.0F, 1.0F);
-
-						renderSparksImpl(localPlayer, fpStack.last().pose(), poseStack, projectionMatrix, partialTick, true);
+						renderSparksImpl(localPlayer, poseStack, projectionMatrix, partialTick, true);
 					}
 				}
 			}
@@ -328,7 +333,7 @@ public class AuraRenderer {
 			for (var entry : sparks) {
 				if (entry != null) {
 					boolean isFirstLocal = isFirstPerson && entry.player() == Minecraft.getInstance().player;
-					renderSparksImpl(entry.player(), entry.poseMatrix(), poseStack, projectionMatrix, entry.partialTick(), isFirstLocal);
+					renderSparksImpl(entry.player(), poseStack, projectionMatrix, entry.partialTick(), isFirstLocal);
 				}
 			}
 		}
@@ -932,7 +937,7 @@ public class AuraRenderer {
 		return cachedLightningMesh;
 	}
 
-	private static void renderSparksImpl(Player player, Matrix4f basePose, PoseStack poseStack, Matrix4f projectionMatrix, float partialTick, boolean isFirstPersonLocal) {
+	private static void renderSparksImpl(Player player, PoseStack poseStack, Matrix4f projectionMatrix, float partialTick, boolean isFirstPersonLocal) {
 		var stats = StatsProvider.get(StatsCapability.INSTANCE, player).orElse(null);
 		if (stats == null) return;
 		var character = stats.getCharacter();
@@ -989,7 +994,26 @@ public class AuraRenderer {
 		mesh.bind();
 
 		poseStack.pushPose();
-		poseStack.last().pose().set(basePose);
+		if (isFirstPersonLocal) {
+			// First-person effects are view-space, matching the aura path.
+			poseStack.last().pose().identity();
+			poseStack.last().normal().identity();
+			poseStack.translate(0.0, -0.65, -0.8);
+		} else {
+			// The Geo render-layer pose was captured during entity rendering and contains
+			// a frame-specific camera/player transform. Reusing it in the deferred final
+			// pass makes sparks lag or orbit the player, especially with third-person
+			// camera mods and Sable sublevels. Rebuild from the current interpolated world
+			// position on the same model-view base used by auras.
+			Minecraft mc = Minecraft.getInstance();
+			Vec3 cameraPos = mc.gameRenderer.getMainCamera().getPosition();
+			Vec3 playerPos = new Vec3(
+					Mth.lerp(partialTick, player.xo, player.getX()),
+					Mth.lerp(partialTick, player.yo, player.getY()),
+					Mth.lerp(partialTick, player.zo, player.getZ()));
+			playerPos = SableCompat.projectToWorld(player.level(), playerPos);
+			poseStack.translate(playerPos.x - cameraPos.x, playerPos.y - cameraPos.y, playerPos.z - cameraPos.z);
+		}
 
 		long tickInterval = isAuraActive ? 2L : 20L;
 		long timeHash = player.level().getGameTime() / tickInterval;
@@ -1005,7 +1029,7 @@ public class AuraRenderer {
 
 			if (isFirstPersonLocal) {
 				randomY *= 0.4f;
-				poseStack.translate(0.0, -0.3f, 0.6f);
+				poseStack.translate(0.0, -0.15f, 0.0f);
 			}
 
 			poseStack.translate((seededRand.nextFloat() - 0.5f) * spread, randomY, (seededRand.nextFloat() - 0.5f) * spread);

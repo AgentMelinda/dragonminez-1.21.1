@@ -20,14 +20,13 @@ import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Style;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
-import net.neoforged.neoforge.client.event.RenderNameTagEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
-import net.neoforged.neoforge.event.tick.PlayerTickEvent;
-import net.neoforged.neoforge.event.tick.ServerTickEvent;
-import net.neoforged.neoforge.event.tick.LevelTickEvent;
+import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.common.Mod;
@@ -87,46 +86,65 @@ public class KiSenseEvent {
 	}
 
 	@SubscribeEvent
-	public static void onRenderNameTag(RenderNameTagEvent event) {
-		if (!KiSenseState.isCombat()) return;
-		if (!(event.getEntity() instanceof LivingEntity entity)) return;
-		if (!KiSenseScan.getCombatEntities().contains(entity.getId())) return;
-		renderCombatOverlay(event.getPoseStack(), entity, event.getPartialTick());
+	public static void onRenderLevelStage(RenderLevelStageEvent event) {
+		if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_LEVEL || !KiSenseState.isCombat()) return;
+
+		Minecraft mc = Minecraft.getInstance();
+		if (mc.level == null || mc.player == null) return;
+
+		float partialTick = event.getPartialTick().getGameTimeDeltaPartialTick(false);
+		Vec3 cameraPos = event.getCamera().getPosition();
+		PoseStack poseStack = event.getPoseStack();
+
+		for (int entityId : KiSenseScan.getCombatEntities()) {
+			Entity scanned = mc.level.getEntity(entityId);
+			if (!(scanned instanceof LivingEntity entity) || !entity.isAlive()) continue;
+			renderCombatOverlay(poseStack, entity, partialTick, cameraPos);
+		}
 	}
 
-	private static void renderCombatOverlay(PoseStack poseStack, LivingEntity entity, float partialTick) {
+	private static void renderCombatOverlay(PoseStack poseStack, LivingEntity entity, float partialTick, Vec3 cameraPos) {
 		Minecraft mc = Minecraft.getInstance();
 		boolean lod = mc.player != null && mc.player.distanceTo(entity) > LOD_DISTANCE;
+		double x = Mth.lerp(partialTick, entity.xo, entity.getX());
+		double y = Mth.lerp(partialTick, entity.yo, entity.getY());
+		double z = Mth.lerp(partialTick, entity.zo, entity.getZ());
 
 		poseStack.pushPose();
-		poseStack.translate(0.0D, entity.getBbHeight() + 0.8D, 0.0D);
-		poseStack.mulPose(mc.getEntityRenderDispatcher().cameraOrientation());
-
-		float scale = 0.025F;
-		poseStack.scale(-scale, -scale, scale);
-
+		RenderSystem.enableBlend();
+		RenderSystem.defaultBlendFunc();
 		RenderSystem.disableDepthTest();
+		RenderSystem.depthMask(false);
+		try {
+			poseStack.translate(x - cameraPos.x, y - cameraPos.y + entity.getBbHeight() + 0.8D, z - cameraPos.z);
+			poseStack.mulPose(mc.getEntityRenderDispatcher().cameraOrientation());
 
-		float topY;
-		if (entity instanceof Player target) {
-			StatsData data = StatsProvider.get(StatsCapability.INSTANCE, target).orElse(null);
-			if (data != null) {
-				drawStaminaBar(poseStack, data, 0f);
-				drawKiBar(poseStack, data, -BAR_STACK);
+			float scale = 0.025F;
+			poseStack.scale(-scale, -scale, scale);
+
+			float topY;
+			if (entity instanceof Player target) {
+				StatsData data = StatsProvider.get(StatsCapability.INSTANCE, target).orElse(null);
+				if (data != null) {
+					drawStaminaBar(poseStack, data, 0f);
+					drawKiBar(poseStack, data, -BAR_STACK);
+				}
+				renderHealthBar(poseStack, entity, partialTick, lod, -2f * BAR_STACK);
+				topY = -2f * BAR_STACK;
+			} else {
+				renderHealthBar(poseStack, entity, partialTick, lod, 0f);
+				topY = 0f;
 			}
-			renderHealthBar(poseStack, entity, partialTick, lod, -2f * BAR_STACK);
-			topY = -2f * BAR_STACK;
-		} else {
-			renderHealthBar(poseStack, entity, partialTick, lod, 0f);
-			topY = 0f;
+
+			renderBPLabel(poseStack, entity, topY);
+			renderIndicators(poseStack, entity, partialTick, lod, topY);
+		} finally {
+			poseStack.popPose();
+			RenderSystem.depthMask(true);
+			RenderSystem.enableDepthTest();
+			RenderSystem.disableBlend();
+			RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
 		}
-
-		renderBPLabel(poseStack, entity, topY);
-		renderIndicators(poseStack, entity, partialTick, lod, topY);
-
-		RenderSystem.enableDepthTest();
-
-		poseStack.popPose();
 	}
 
 	private static void drawKiBar(PoseStack poseStack, StatsData data, float baseY) {

@@ -14,6 +14,11 @@ public class DBSagasAnimationHandler {
     public static <T extends GeoAnimatable> PlayState walkPredicate(AnimationState<T> event) {
         DBSagasEntity entity = (DBSagasEntity) event.getAnimatable();
 
+        // Deliberately does NOT stand down for attacks. A punch is meant to layer over locomotion —
+        // arms swing while the legs keep walking — and stopping this controller mid-blend snaps
+        // every bone it was driving back to the model default, which pops on each swing. Casting
+        // gets away with STOP because that animation is long and full-body. The attack fix lives in
+        // attack_controller's transition length instead, in DBSagasEntity.registerControllers.
         if (entity.isEvading() || entity.isComboing()) {
             event.getController().setAnimationSpeed(1.0D);
             return PlayState.STOP;

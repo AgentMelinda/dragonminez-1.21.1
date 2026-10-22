@@ -267,6 +267,11 @@ public class StatsEvents {
 		StatsProvider.get(StatsCapability.INSTANCE, event.getEntity()).ifPresent(data -> data.getSkills().setSkillActive("kisense", false));
 	}
 
+	/**
+	 * Apply VIT-scaled max health like 1.20.1. Effective HP is still limited by the
+	 * {@code generic.max_health} RangedAttribute max (rejoin-safe ceiling).
+	 * Full VIT is stored on field-backed stats; this only updates the living HP mod.
+	 */
 	public static void applyHealthBonus(ServerPlayer serverPlayer) {
 		StatsProvider.get(StatsCapability.INSTANCE, serverPlayer).ifPresent(data -> {
 			AttributeInstance maxHealthAttr = serverPlayer.getAttribute(Attributes.MAX_HEALTH);
@@ -275,24 +280,66 @@ public class StatsEvents {
 			float dmzHealthBonus = data.getHealthBonus();
 			if (!Float.isFinite(dmzHealthBonus) || dmzHealthBonus < 0) dmzHealthBonus = 0f;
 
+			float healthBefore = serverPlayer.getHealth();
+			double maxBefore = maxHealthAttr.getValue();
+
 			AttributeModifier existingModifier = maxHealthAttr.getModifier(com.dragonminez.common.util.AttributeMods.id(DMZ_HEALTH_MODIFIER_UUID));
+			// Epsilon: float bonus vs double modifier amount — exact != thrash freezes multiplayer.
+			boolean needsUpdate = existingModifier == null
+					|| Math.abs(existingModifier.amount() - (double) dmzHealthBonus) > Math.max(1.0D, Math.abs(dmzHealthBonus) * 1.0e-5D);
 
-			if (existingModifier == null || existingModifier.amount() != dmzHealthBonus) {
+			if (needsUpdate) {
+				// Only when rewriting the mod (not every tick).
+				com.dragonminez.common.stats.GenericAttributes.ensureAttributeCeilings();
 				maxHealthAttr.removeModifier(com.dragonminez.common.util.AttributeMods.id(DMZ_HEALTH_MODIFIER_UUID));
-
 				if (dmzHealthBonus > 0) {
 					AttributeModifier healthModifier = com.dragonminez.common.util.AttributeMods.of(DMZ_HEALTH_MODIFIER_UUID, "DMZ Health Bonus", dmzHealthBonus, AttributeModifier.Operation.ADD_VALUE);
 					maxHealthAttr.addPermanentModifier(healthModifier);
 				}
+			}
 
-				if (serverPlayer.getHealth() > maxHealthAttr.getValue()) {
-					serverPlayer.setHealth((float) maxHealthAttr.getValue());
-				}
+			double maxAfter = maxHealthAttr.getValue();
+			if (!Double.isFinite(maxAfter) || maxAfter <= 0.0D) return;
+
+			// Grant HP for newly available max (ceiling open / VIT grew), like heal after set.
+			if (maxAfter > maxBefore + 0.01D) {
+				float gain = (float) (maxAfter - maxBefore);
+				serverPlayer.setHealth(Math.min((float) maxAfter, healthBefore + gain));
+			} else if (serverPlayer.getHealth() > maxAfter) {
+				serverPlayer.setHealth((float) maxAfter);
 			}
 
 			if (!data.hasInitializedHealth()) {
-				serverPlayer.setHealth((float) maxHealthAttr.getValue());
+				serverPlayer.setHealth((float) maxAfter);
 				data.setInitializedHealth(true);
+			}
+		});
+	}
+
+	/**
+	 * Login/clone/async load: re-push VIT/ENE/… fields onto attributes, refresh HP like health
+	 * fix, reclamp ki/stamina pools to the new maxes (same idea as heal after VIT).
+	 */
+	public static void restoreStatsPoolsOnJoin(ServerPlayer serverPlayer) {
+		StatsProvider.get(StatsCapability.INSTANCE, serverPlayer).ifPresent(data -> {
+			try {
+				com.dragonminez.common.stats.GenericAttributes.ensureAttributeCeilings();
+				data.reapplyStatAttributes();
+				// Force health mod recompute once on join.
+				AttributeInstance maxHealthAttr = serverPlayer.getAttribute(Attributes.MAX_HEALTH);
+				if (maxHealthAttr != null) {
+					maxHealthAttr.removeModifier(com.dragonminez.common.util.AttributeMods.id(DMZ_HEALTH_MODIFIER_UUID));
+				}
+				data.setInitializedHealth(false);
+				applyHealthBonus(serverPlayer);
+				if (serverPlayer instanceof com.dragonminez.common.util.IHealthFixable fixable) {
+					fixable.dragonminez$applyDeferredHealthRestore();
+				}
+				// Max ki/stamina from field ENE/RES — clamp current pools to live max (no wipe).
+				data.getResources().reclampToCurrentMax();
+			} catch (Exception e) {
+				com.dragonminez.LogUtil.error(com.dragonminez.Env.SERVER,
+						"restoreStatsPoolsOnJoin failed for " + serverPlayer.getGameProfile().getName(), e);
 			}
 		});
 	}
@@ -947,7 +994,10 @@ public class StatsEvents {
     @SubscribeEvent
     public static void onEntitySize(EntityEvent.Size event) {
         Entity entity = event.getEntity();
-        if (!(entity instanceof Player)) return;
+        // During Player/ServerPlayer construction AttributeMap is still null. Touching
+        // attachments here materializes StatsProvider -> setPlayer -> getAttribute NPE.
+        if (!(entity instanceof Player player)) return;
+        if (player.getAttributes() == null) return;
 
         StatsProvider.get(StatsCapability.INSTANCE, entity).ifPresent(data -> {
             var character = data.getCharacter();

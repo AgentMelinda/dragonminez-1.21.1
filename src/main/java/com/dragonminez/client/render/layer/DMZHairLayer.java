@@ -1,6 +1,8 @@
 package com.dragonminez.client.render.layer;
 
 import com.dragonminez.client.render.compat.CosmeticArmorCompat;
+import com.dragonminez.client.render.compat.AeroCamSyncCompat;
+import com.dragonminez.client.render.EntityPreviewRenderContext;
 import com.dragonminez.client.render.firstperson.dto.FirstPersonManager;
 import com.dragonminez.client.render.hair.HairRenderer;
 import com.dragonminez.client.render.shader.TransformationMaskBufferSource;
@@ -69,7 +71,7 @@ public class DMZHairLayer<T extends AbstractClientPlayer & GeoAnimatable> extend
 		poseStack.pushPose();
 		RenderUtil.translateToPivotPoint(poseStack, bone);
 		renderHair(poseStack, animatable, bufferSource, partialTick, packedLight, packedOverlay);
-		bufferSource.getBuffer(renderType);
+		if (renderType != null) bufferSource.getBuffer(renderType);
 		poseStack.popPose();
 
 		if (maskBuffer != null) {
@@ -79,14 +81,28 @@ public class DMZHairLayer<T extends AbstractClientPlayer & GeoAnimatable> extend
 
 	public void renderHair(PoseStack poseStack, T animatable, MultiBufferSource bufferSource, float partialTick, int packedLight, int packedOverlay) {
 		if (animatable.isInvisible() && !animatable.isSpectator()) return;
-		if (FirstPersonManager.shouldRenderFirstPerson(animatable)) return;
+		Minecraft minecraft = Minecraft.getInstance();
+		if (animatable == minecraft.player
+				&& FirstPersonManager.shouldRenderFirstPerson(animatable)
+				&& !EntityPreviewRenderContext.isRendering()) return;
+		// DMZ replaces PlayerRenderer at HEAD, so Aero Cam Sync's own callback is not guaranteed
+		// to be active by the time GeckoLib renders this layer. Its presence is the stable compat
+		// signal: keep the complete DMZ model and let Aero Cam Sync position the camera around it.
+		// Same preview escape as the check above. A menu preview never reaches this branch
+		// (shouldRenderFirstPerson is false whenever a screen is open), but an in-world preview
+		// such as a HUD portrait does, and hiding its hair is exactly what the context exists
+		// to prevent.
+		if (FirstPersonManager.shouldRenderFirstPerson(animatable)
+				&& !AeroCamSyncCompat.isLoaded()
+				&& !EntityPreviewRenderContext.isRendering()) return;
 
 		ItemStack headItem = resolveHeadArmorStack(animatable);
 		if (!headItem.isEmpty()) {
 			ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(headItem.getItem());
 			if (itemId != null) {
 				List<String> allowedHelmets = ConfigManager.getServerConfig().getGameplay().getHelmetsThatKeepHair();
-				if (!allowedHelmets.contains(itemId.toString())) return;
+				boolean createGoggles = itemId.getNamespace().equals("create") && itemId.getPath().equals("goggles");
+				if (!createGoggles && !allowedHelmets.contains(itemId.toString())) return;
 			}
 		}
 

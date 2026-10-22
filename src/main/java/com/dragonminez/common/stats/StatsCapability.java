@@ -17,7 +17,6 @@ import com.dragonminez.common.util.TransformationsHelper;
 import com.dragonminez.server.world.structure.helper.QuestStructureHints;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.neoforged.neoforge.attachment.AttachmentType;
 import net.neoforged.neoforge.registries.DeferredHolder;
@@ -27,8 +26,6 @@ import net.neoforged.bus.api.IEventBus;
 import com.dragonminez.compat.capabilities.Capability;
 import com.dragonminez.compat.capabilities.CapabilityManager;
 import com.dragonminez.compat.capabilities.CapabilityToken;
-import com.dragonminez.compat.capabilities.RegisterCapabilitiesEvent;
-import com.dragonminez.compat.capabilities.AttachCapabilitiesEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.event.tick.PlayerTickEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
@@ -65,19 +62,6 @@ public class StatsCapability {
 	}
 
 	@SubscribeEvent
-	public static void onRegisterCapabilities(RegisterCapabilitiesEvent event) {
-		event.register(StatsData.class);
-	}
-
-	@SubscribeEvent
-	public static void onAttachCapabilities(AttachCapabilitiesEvent<Entity> event) {
-		if (event.getObject() instanceof Player player) {
-			// Materialize the serializable NeoForge attachment for this player.
-			StatsProvider.getOrCreate(player);
-		}
-	}
-
-	@SubscribeEvent
 	public static void onPlayerClone(PlayerEvent.Clone event) {
 		Player player = event.getEntity();
 		Player original = event.getOriginal();
@@ -92,6 +76,12 @@ public class StatsCapability {
 					else if (CLIENT_CACHE != null) newData.copyFrom(CLIENT_CACHE);
 				}
 			});
+			// Ensure attribute mirrors + pools on the new player entity after clone.
+			if (player instanceof ServerPlayer serverPlayer) {
+				com.dragonminez.server.events.players.StatsEvents.restoreStatsPoolsOnJoin(serverPlayer);
+			} else {
+				newData.reapplyStatAttributes();
+			}
 		});
 		// Drop original provider mapping after clone copy.
 		StatsProvider.remove(original);
@@ -137,6 +127,8 @@ public class StatsCapability {
 					repairedSkills.forEach((oldName, newName) -> LogUtil.info(Env.SERVER, "Repaired skill for {}: '{}' -> '{}'", serverPlayer.getGameProfile().getName(), oldName, newName));
 				}
 				data.getSkills().setSkillActive("kisense", false);
+				// VIT/ENE fields from NBT → attributes + HP mod + reclamp max ki/stamina (like health fix).
+				com.dragonminez.server.events.players.StatsEvents.restoreStatsPoolsOnJoin(serverPlayer);
 				NetworkHandler.sendToTrackingEntityAndSelf(new StatsSyncS2C(serverPlayer), serverPlayer);
 			});
 		}

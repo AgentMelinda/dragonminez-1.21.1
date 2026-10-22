@@ -37,6 +37,7 @@ import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.ComputeFovModifierEvent;
@@ -260,7 +261,9 @@ public class ClientStatsEvents {
 				} else kiRgb = character.getRgbAuraColor();
 				int colorMain = ColorUtils.rgbToInt(kiRgb[0], kiRgb[1], kiRgb[2]);
 				int colorBorder = ColorUtils.darkenColor(colorMain, 0.85f);
-				NetworkHandler.sendToServer(new KiBlastC2S(true, colorMain, colorBorder));
+				var cameraLook = Minecraft.getInstance().gameRenderer.getMainCamera().getLookVector();
+				Vec3 aim = new Vec3(cameraLook.x(), cameraLook.y(), cameraLook.z());
+				NetworkHandler.sendToServer(new KiBlastC2S(true, colorMain, colorBorder, aim));
 				kiBlastTimer = 10;
 				blockLockTicks = 20;
 			}
@@ -360,7 +363,9 @@ public class ClientStatsEvents {
 			boolean isFlying = data.getSkills().isSkillActive("fly") && !localPlayer.onGround() && !localPlayer.isInWater();
 
 			if (isFlying) {
-				if (flightSound == null || !mc.getSoundManager().isActive(flightSound)) {
+				// A newly queued sound is not active yet; testing isActive() here allocated another
+				// looping instance every tick until OpenAL's source pool was exhausted.
+				if (flightSound == null || flightSound.isStopped()) {
 					flightSound = new FlightSoundInstance(localPlayer);
 					mc.getSoundManager().play(flightSound);
 				}
@@ -421,13 +426,13 @@ public class ClientStatsEvents {
 						NetworkHandler.sendToServer(new SelectTechniqueSlotC2S(i));
 						NetworkHandler.sendToServer(new TaiyokenCastC2S());
 					} else if (t instanceof KiAttackData ki && !data.getCooldowns().hasCooldown("TechniqueCooldown_" + id)) { if (player.isPassenger() && TechniqueDispatcher.restrictsMovementWhileCharging(ki.getKiType())) continue; var lockedKiTarget = LockOnEvent.getLockedTarget(); int kiTargetId = lockedKiTarget != null ? lockedKiTarget.getId() : -1;
-					if (ki.isInstantCast()) NetworkHandler.sendToServer(TechniqueChargeC2S.start(i, kiTargetId));
+					if (ki.isInstantCast()) NetworkHandler.sendToServer(TechniqueChargeC2S.start(i, kiTargetId, getCameraAim()));
 					else {
 						activeChargeSlot = i;
 						chargeReleaseSent = false;
 						chargePending = true;
 						chargePendingTicks = 0;
-						NetworkHandler.sendToServer(TechniqueChargeC2S.start(i, kiTargetId));
+						NetworkHandler.sendToServer(TechniqueChargeC2S.start(i, kiTargetId, getCameraAim()));
 					}
 					net.neoforged.neoforge.common.NeoForge.EVENT_BUS.post(new DMZClientEvent.KiAttackCast(player, i));
 				}
@@ -450,11 +455,23 @@ public class ClientStatsEvents {
 		}
 
 		boolean slotDown = activeChargeSlot < TECHNIQUE_VISIBLE_SLOTS && downNow[activeChargeSlot];
+		if (slotDown && sessionActive && !chargeReleaseSent) {
+			// Keep server camera aim fresh while holding — otherwise after ~2s it falls back
+			// to body look and charging orbs/beams track the torso instead of the crosshair.
+			if (player.tickCount % 2 == 0) {
+				NetworkHandler.sendToServer(TechniqueChargeC2S.updateAim(getCameraAim()));
+			}
+		}
 		if (!slotDown && !chargeReleaseSent) {
-			NetworkHandler.sendToServer(TechniqueChargeC2S.setHolding(false));
+			NetworkHandler.sendToServer(TechniqueChargeC2S.setHolding(false, getCameraAim()));
 			chargeReleaseSent = true;
 			net.neoforged.neoforge.common.NeoForge.EVENT_BUS.post(new DMZClientEvent.KiAttackRelease(player));
 		}
+	}
+
+	private static Vec3 getCameraAim() {
+		var look = Minecraft.getInstance().gameRenderer.getMainCamera().getLookVector();
+		return new Vec3(look.x(), look.y(), look.z());
 	}
 
 	private static void notifyMasteryBlocked(StatsData data, Character character, LocalPlayer localPlayer) {

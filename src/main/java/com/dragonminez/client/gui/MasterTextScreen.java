@@ -17,6 +17,7 @@ import com.dragonminez.common.stats.StatsProvider;
 import com.dragonminez.server.world.dimension.HTCDimension;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.BufferUploader;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.Tesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
@@ -24,6 +25,7 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.Renderable;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.network.chat.Component;
@@ -578,7 +580,7 @@ public class MasterTextScreen extends Screen {
 		buffer.addVertex(centerX + 140, centerY + 250, 0.0F).setUv(1.0F, 1.0F);
 		buffer.addVertex(centerX + 140, centerY - 90, 0.0F).setUv(1.0F, 0.0F);
 		buffer.addVertex(centerX - 140, centerY - 90, 0.0F).setUv(0.0F, 0.0F);
-		/* end handled by BufferUploader */
+		BufferUploader.drawWithShader(buffer.buildOrThrow());
 
 		RenderSystem.disableBlend();
 
@@ -591,7 +593,12 @@ public class MasterTextScreen extends Screen {
 			TextUtil.drawStringWithBorder(graphics, this.font, line, centerX - 120, textY, 0xFFFFFF);
 			textY += this.font.lineHeight + 2;
 		}
-		super.render(graphics, mouseX, mouseY, partialTick);
+		// Screen.render() gained background/blur rendering in 1.21. Calling it after
+		// the original DMZ dialogue panel blurs both the world and the panel itself.
+		// Preserve the 1.20.1 behavior by rendering only this screen's widgets.
+		for (Renderable renderable : this.renderables) {
+			renderable.render(graphics, mouseX, mouseY, partialTick);
+		}
 	}
 
 	private void refreshButtons() {
