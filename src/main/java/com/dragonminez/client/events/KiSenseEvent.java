@@ -1,16 +1,16 @@
 package com.dragonminez.client.events;
 
 import com.dragonminez.Reference;
-import com.dragonminez.client.gui.hud.HudStatNumberAnimator;
 import com.dragonminez.client.systems.kisense.CombatIndicators;
 import com.dragonminez.client.systems.kisense.KiSenseScan;
 import com.dragonminez.client.systems.kisense.KiSenseState;
-import com.dragonminez.common.config.ConfigManager;
 import com.dragonminez.common.stats.StatsCapability;
-import com.dragonminez.common.stats.StatsData;
 import com.dragonminez.common.stats.StatsProvider;
+import com.dragonminez.common.stats.StatsData;
+import com.dragonminez.client.gui.hud.HudStatNumberAnimator;
+import com.dragonminez.common.config.ConfigManager;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.vertex.*;
+import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.renderer.GameRenderer;
@@ -42,13 +42,11 @@ public class KiSenseEvent {
 	private static final ResourceLocation HUD_TEXTURE = ResourceLocation.fromNamespaceAndPath(Reference.MOD_ID, "textures/gui/hud/alternativehud.png");
 	private static final ResourceLocation DMZ_FONT = ResourceLocation.fromNamespaceAndPath(Reference.MOD_ID, "smooth");
 	static NumberFormat numberFormat = NumberFormat.getInstance(Locale.US);
-
 	private static final double LOD_DISTANCE = 24.0;
 	private static final float BAR_MAX_WIDTH = 76.0f;
 	private static final float BAR_STACK = 10.0f;
 	private static final int DAMAGE_COLOR = 0xFF5555;
 	private static final int HEAL_COLOR = 0x55FF55;
-
 	private static final Map<Integer, HudStatNumberAnimator> healthAnimators = new HashMap<>();
 	private static final Map<Integer, Float> lerpedHealthWidths = new HashMap<>();
 
@@ -80,7 +78,6 @@ public class KiSenseEvent {
 			if (KiSenseState.isCombat()) CombatIndicators.tick();
 			else CombatIndicators.clear();
 		});
-
 		lerpedHealthWidths.keySet().retainAll(KiSenseScan.getCombatEntities());
 		healthAnimators.keySet().retainAll(KiSenseScan.getCombatEntities());
 	}
