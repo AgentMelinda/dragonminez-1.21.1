@@ -22,9 +22,8 @@ public class DMZCloudsRenderer {
 	private CloudStatus prevCloudsType;
 	private boolean generateClouds = true;
 
-	public void render(PoseStack poseStack, Matrix4f projectionMatrix, float partialTick, double camX, double camY, double camZ, Vec3 customColor) {
+	public void render(PoseStack poseStack, Matrix4f modelViewMatrix, Matrix4f projectionMatrix, float partialTick, double camX, double camY, double camZ, Vec3 customColor, float cloudHeight, float cloudTicks) {
 		Minecraft mc = Minecraft.getInstance();
-		float cloudHeight = mc.level.effects().getCloudHeight();
 
 		if (Float.isNaN(cloudHeight)) {
 			return;
@@ -41,7 +40,8 @@ public class DMZCloudsRenderer {
 		);
 		RenderSystem.depthMask(true);
 
-		double time = (double) ((float) mc.level.getGameTime() + partialTick) * 0.03F;
+		// World-fixed cloud plane: relative Y so clouds sit at cloudHeight, not at player Y.
+		double time = (double) (cloudTicks * 0.03F);
 		double viewX = (camX + time) / 12.0D;
 		double viewY = (double) (cloudHeight - (float) camY + 0.33F);
 		double viewZ = camZ / 12.0D + 0.33D;
@@ -82,10 +82,13 @@ public class DMZCloudsRenderer {
 			VertexBuffer.unbind();
 		}
 
-		RenderSystem.setShader(GameRenderer::getPositionTexColorShader);
+		// Clouds format is POSITION_TEX_COLOR_NORMAL; use the dedicated clouds shader when available.
+		RenderSystem.setShader(GameRenderer::getRendertypeCloudsShader);
 		RenderSystem.setShaderTexture(0, CLOUDS_LOCATION);
 
 		poseStack.pushPose();
+		// Required in 1.21: without this, clouds are camera-locked instead of world-fixed at cloud Y.
+		poseStack.mulPose(modelViewMatrix);
 		poseStack.scale(12.0F, 1.0F, 12.0F);
 		poseStack.translate(-offsetX, offsetY, -offsetZ);
 
@@ -127,7 +130,7 @@ public class DMZCloudsRenderer {
 		float shadowG = g * 0.6F;
 		float shadowB = b * 0.6F;
 
-		RenderSystem.setShader(GameRenderer::getPositionTexColorShader);
+		RenderSystem.setShader(GameRenderer::getRendertypeCloudsShader);
 		BufferBuilder builder = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR_NORMAL);
 
 		float floorY = (float) Math.floor(y / 4.0D) * 4.0F;

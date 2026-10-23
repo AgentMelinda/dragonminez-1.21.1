@@ -7,13 +7,12 @@ import com.dragonminez.server.world.biome.NamekBiomes;
 import com.dragonminez.server.world.biome.OtherworldBiomes;
 import com.dragonminez.server.world.biome.OverworldBiomes;
 import com.dragonminez.server.world.biome.SacredKaiBiomes;
-import net.minecraft.client.Minecraft;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.data.PackOutput;
 import net.minecraft.data.tags.BiomeTagsProvider;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.BiomeTags;
 import net.minecraft.world.level.biome.Biomes;
+import net.neoforged.neoforge.common.Tags;
 import net.neoforged.neoforge.common.data.ExistingFileHelper;
 
 import javax.annotation.Nullable;
@@ -61,6 +60,17 @@ public class DMZBiomeTagGenerator extends BiomeTagsProvider {
 				.addTag(BiomeTags.HAS_WOODLAND_MANSION)
 				.addTag(BiomeTags.IS_JUNGLE);
 
+		this.tag(MainTags.Biomes.HAS_GIANT_FISH)
+				.replace(false)
+				.addTag(BiomeTags.IS_DEEP_OCEAN)
+				.addTag(BiomeTags.IS_OCEAN)
+				.addTag(BiomeTags.IS_BEACH)
+				.add(NamekBiomes.NAMEKIAN_RIVERS);
+
+		this.tag(MainTags.Biomes.HAS_GIANT_TURTLE)
+				.replace(false)
+				.addTag(BiomeTags.IS_BEACH);
+
 		this.tag(MainTags.Biomes.HAS_ROBOTS)
 				.replace(false)
 				.addTag(BiomeTags.HAS_VILLAGE_SAVANNA)
@@ -68,6 +78,10 @@ public class DMZBiomeTagGenerator extends BiomeTagsProvider {
 				.addTag(BiomeTags.HAS_VILLAGE_SNOWY);
 
 		this.tag(MainTags.Biomes.IS_ROCKYBIOME)
+				.replace(false)
+				.add(OverworldBiomes.ROCKY);
+
+		this.tag(BiomeTags.IS_OVERWORLD)
 				.replace(false)
 				.add(OverworldBiomes.ROCKY);
 
@@ -95,35 +109,48 @@ public class DMZBiomeTagGenerator extends BiomeTagsProvider {
 				.addTag(BiomeTags.IS_HILL)
 				.addTag(BiomeTags.IS_MOUNTAIN)
 				.add(OverworldBiomes.ROCKY)
-				.addOptionalTag(forge("is_plains"))
-				.addOptionalTag(forge("is_desert"))
-				.addOptionalTag(forge("is_sandy"))
-				.addOptionalTag(forge("is_snowy"))
-				.addOptionalTag(forge("is_swamp"))
-				.addOptionalTag(forge("is_mountain"))
-				.addOptionalTag(forge("is_plateau"))
-				.addOptionalTag(forge("is_slope"))
-				.addOptionalTag(forge("is_peak"))
-				.addOptionalTag(forge("is_lush"))
-				.addOptionalTag(forge("is_coniferous"));
+				.addTag(Tags.Biomes.IS_PLAINS)
+				.addTag(Tags.Biomes.IS_DESERT)
+				.addTag(Tags.Biomes.IS_SANDY)
+				.addTag(Tags.Biomes.IS_SNOWY)
+				.addTag(Tags.Biomes.IS_SWAMP)
+				.addTag(Tags.Biomes.IS_MOUNTAIN)
+				.addTag(Tags.Biomes.IS_PLATEAU)
+				.addTag(Tags.Biomes.IS_MOUNTAIN_SLOPE)
+				.addTag(Tags.Biomes.IS_MOUNTAIN_PEAK)
+				.addTag(Tags.Biomes.IS_LUSH)
+				.addTag(Tags.Biomes.IS_CONIFEROUS_TREE);
 
 		this.tag(MainTags.Biomes.IS_MOUNTAINLIKE)
 				.replace(false)
 				.addTag(BiomeTags.IS_MOUNTAIN)
-				.addOptionalTag(forge("is_mountain"));
+				.addTag(Tags.Biomes.IS_MOUNTAIN);
+
+        this.tag(MainTags.Biomes.IS_GEROLAB)
+				.replace(false)
+				.addTag(MainTags.Biomes.IS_ROCKYBIOME)
+				.addTag(MainTags.Biomes.IS_MOUNTAINLIKE);
 
 		this.tag(MainTags.Biomes.IS_PLAINSLIKE)
 				.replace(false)
 				.addTag(BiomeTags.HAS_VILLAGE_PLAINS)
-				.addOptionalTag(forge("is_plains"));
+				.addTag(Tags.Biomes.IS_PLAINS);
+
+		this.tag(MainTags.Biomes.IS_PLAINS)
+				.replace(false)
+				.add(Biomes.PLAINS)
+				.add(Biomes.SUNFLOWER_PLAINS)
+				.addTag(BiomeTags.HAS_VILLAGE_PLAINS);
+
+		this.tag(MainTags.Biomes.IS_SWAMPLIKE)
+				.replace(false)
+				.add(Biomes.SWAMP)
+				.add(Biomes.MANGROVE_SWAMP)
+				.addTag(Tags.Biomes.IS_SWAMP);
 
 		this.tag(MainTags.Biomes.IS_DESERTLIKE)
 				.replace(false)
 				.addTag(BiomeTags.HAS_VILLAGE_DESERT)
-				.addOptionalTag(forge("is_desert"));
-	}
-
-	private static ResourceLocation forge(String path) {
-		return ResourceLocation.fromNamespaceAndPath("forge", path);
+				.addTag(Tags.Biomes.IS_DESERT);
 	}
 }

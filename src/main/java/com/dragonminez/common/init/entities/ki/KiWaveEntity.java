@@ -1,11 +1,15 @@
 package com.dragonminez.common.init.entities.ki;
 
+import com.dragonminez.common.compat.CameraAimHelper;
+
 import com.dragonminez.client.util.ColorUtils;
 import com.dragonminez.common.combat.util.MultipartTargeting;
+import com.dragonminez.common.compat.SableCompat;
 import com.dragonminez.common.init.*;
 import com.dragonminez.common.init.particles.KiLightningParticle;
 import com.dragonminez.common.init.particles.KiSheddingParticle;
 import com.dragonminez.common.init.particles.KiTrailParticle;
+import com.dragonminez.server.events.players.combat.KiTechniqueHandler;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.particle.Particle;
 import net.minecraft.core.BlockPos;
@@ -46,11 +50,33 @@ public class KiWaveEntity extends AbstractKiProjectile {
 
     private static final EntityDataAccessor<Boolean> CONTINUOUS_FOLLOW = SynchedEntityData.defineId(KiWaveEntity.class, EntityDataSerializers.BOOLEAN);
     private static final EntityDataAccessor<Boolean> IS_FIRING = SynchedEntityData.defineId(KiWaveEntity.class, EntityDataSerializers.BOOLEAN);
+    private static final EntityDataAccessor<Float> STEER_RATE = SynchedEntityData.defineId(KiWaveEntity.class, EntityDataSerializers.FLOAT);
+
+    private static final float MOUTH_BLAST_STEER_RATE = 2.5F;
+    private static final float STEER_EASE = 0.2F;
+    private static final float STEER_MIN_STEP = 0.15F;
+    private static final float MOUTH_OFFSET_Y = -0.25F;
+    private static final float MOUTH_OFFSET_FORWARD = 0.3F;
 
     private static final float MAX_RANGE = 300.0F; // uff
 
+    /**
+     * Player-equivalent forward clearance. It used to read the owner's width directly, but the
+     * cast offset is now scaled by that width downstream -- returning a measured value here
+     * would apply the caster's size twice.
+     */
+    /**
+     * While charging the orb is drawn at castSize * 1.5; once fired the beam is a cylinder of
+     * radius size. Either way the entity sits at the centre, so that radius is what has to clear
+     * the caster.
+     */
+    @Override
+    protected float castClearanceRadius() {
+        return this.isFiring() ? this.getSize() : this.getCastSize() * 1.5F;
+    }
+
     private float calcWaveForwardOffset(LivingEntity owner) {
-        return (owner.getBbWidth() / 2.0F) + 0.2F;
+        return 0.5F;
     }
 
     private float calcWaveCenterOffsetY(LivingEntity owner) {
@@ -163,12 +189,16 @@ public class KiWaveEntity extends AbstractKiProjectile {
     }
 
     public void setupKiHame(LivingEntity owner, float damage, float speed, float size, int colorOutline, int castTime) {
+        this.setupKiHame(owner, damage, speed, size, 0x4FF7FF, 0x4FF7FF, colorOutline, castTime);
+    }
+
+    public void setupKiHame(LivingEntity owner, float damage, float speed, float size, int colorMain, int colorBorder, int colorOutline, int castTime) {
         this.setKiRenderType(1);
         this.setSize(size);
         this.setCastSize(size / 2);
         this.setKiDamage(damage);
         this.setKiSpeed(speed);
-        this.setColors(0x4FF7FF, 0x4FF7FF, colorOutline);
+        this.setColors(colorMain, colorBorder, colorOutline);
         this.setFiring(false);
         this.setCastWave(castTime);
         this.setMaxLife(castTime*2);
@@ -190,7 +220,7 @@ public class KiWaveEntity extends AbstractKiProjectile {
         this.setCastSize(0.2f);
         this.setKiDamage(damage);
         this.setKiSpeed(speed);
-        this.setColors(0x4FF7FF, 0x4FF7FF, colorOutline);
+        this.setColors(0xEDF4FF, 0x29D8FF, colorOutline);
         this.setFiring(false);
         this.setMaxLife(99999);
         this.setCastWave(0);
@@ -200,7 +230,7 @@ public class KiWaveEntity extends AbstractKiProjectile {
     }
 
     public void setupKiHamePlayer(LivingEntity owner, float damage, float speed, float size) {
-        this.setupKiHamePlayer(owner, damage, speed, size, 0xFFFFFF);
+        this.setupKiHamePlayer(owner, damage, speed, size, 0x0077FF);
     }
 
     public void setupKiGalickGun(LivingEntity owner, float damage, float speed, float size, int colorOutline, int castTime) {
@@ -209,7 +239,7 @@ public class KiWaveEntity extends AbstractKiProjectile {
         this.setCastSize(size / 2);
         this.setKiDamage(damage);
         this.setKiSpeed(speed);
-        this.setColors(0xCE10E3, 0xAE10E3, colorOutline);
+        this.setColors(0xF0E0FF, 0x7A2CF0, colorOutline);
         this.setFiring(false);
         this.setCastWave(castTime);
         this.setMaxLife(castTime * 2);
@@ -222,7 +252,7 @@ public class KiWaveEntity extends AbstractKiProjectile {
     }
 
     public void setupKiGalickGun(LivingEntity owner, float damage, float speed, float size, int castTime) {
-        this.setupKiGalickGun(owner, damage, speed, size, 0xFFFFFF, castTime);
+        this.setupKiGalickGun(owner, damage, speed, size, 0x4B0BB8, castTime);
     }
 
     public void setupKiGalickGunPlayer(LivingEntity owner, float damage, float speed, float size, int colorOutline) {
@@ -231,7 +261,7 @@ public class KiWaveEntity extends AbstractKiProjectile {
         this.setCastSize(0.3f);
         this.setKiDamage(damage);
         this.setKiSpeed(speed);
-        this.setColors(0xCE10E3, 0xA024E3, colorOutline);
+        this.setColors(0xF0E0FF, 0x7A2CF0, colorOutline);
         this.setFiring(false);
         this.setMaxLife(99999);
         this.setCastWave(0);
@@ -241,7 +271,7 @@ public class KiWaveEntity extends AbstractKiProjectile {
     }
 
     public void setupKiGalickGunPlayer(LivingEntity owner, float damage, float speed, float size) {
-        this.setupKiGalickGunPlayer(owner, damage, speed, size, 0x9827F5);
+        this.setupKiGalickGunPlayer(owner, damage, speed, size, 0x4B0BB8);
     }
 
     public void setupFinalFlash(LivingEntity owner, float damage, float speed, float size, int colorOutline, int castTime) {
@@ -263,7 +293,7 @@ public class KiWaveEntity extends AbstractKiProjectile {
     }
 
     public void setupFinalFlash(LivingEntity owner, float damage, float speed, float size, int castTime) {
-        this.setupFinalFlash(owner, damage, speed, size, 0xFFFFFF, castTime);
+        this.setupFinalFlash(owner, damage, speed, size, 0xFFD452, castTime);
     }
 
     public void setupFinalFlashPlayer(LivingEntity owner, float damage, float speed, float size, int colorOutline) {
@@ -272,7 +302,7 @@ public class KiWaveEntity extends AbstractKiProjectile {
         this.setCastSize(size / 2.0F);
         this.setKiDamage(damage);
         this.setKiSpeed(speed);
-        this.setColors(0xFFFD55, 0xFFFD55, colorOutline);
+        this.setColors(0xFFFCD6, 0xFFEB52, colorOutline);
         this.setFiring(false);
         this.setMaxLife(99999);
         this.setCastWave(50);
@@ -282,7 +312,7 @@ public class KiWaveEntity extends AbstractKiProjectile {
     }
 
     public void setupFinalFlashPlayer(LivingEntity owner, float damage, float speed, float size) {
-        this.setupFinalFlashPlayer(owner, damage, speed, size, 0xFFFFFF);
+        this.setupFinalFlashPlayer(owner, damage, speed, size, 0xF5C020);
     }
 
     public void setupDoubleSunday(LivingEntity owner, float damage, float speed, int color, int colorBorder, int colorOutline, float size, int castTime) {
@@ -315,6 +345,7 @@ public class KiWaveEntity extends AbstractKiProjectile {
         this.setKiSpeed(speed);
         this.setColors(color, colorBorder, colorOutline);
         this.setContinuousFollow(true);
+        this.setSteerRate(MOUTH_BLAST_STEER_RATE);
         this.setFiring(false);
         this.setCastWave(castTime);
         this.setMaxLife(castTime * 2);
@@ -349,6 +380,22 @@ public class KiWaveEntity extends AbstractKiProjectile {
         this.setupKiOozaruPlayer(owner, damage, speed, color, colorBorder, 0xFFFFFF, size);
     }
 
+    public void setupMouthBlastPlayer(LivingEntity owner, float damage, float speed, int color, int colorBorder, float size) {
+        this.setKiRenderType(0);
+        this.setSize(size);
+        this.setCastSize(size / 2);
+        this.setKiDamage(damage);
+        this.setKiSpeed(speed);
+        this.setColors(color, colorBorder, 0xFFFFFF);
+        this.setContinuousFollow(true);
+        this.setSteerRate(MOUTH_BLAST_STEER_RATE);
+        this.setFiring(false);
+        this.setMaxLife(99999);
+        this.setCastWave(0);
+        this.setCastOffsets(0.0F, MOUTH_OFFSET_Y, MOUTH_OFFSET_FORWARD);
+        updatePositionRelativeToOwner(owner, true);
+    }
+
     public void setupKiMasenko(LivingEntity owner, float damage, float speed, float size, int colorOutline, int castTime) {
         this.setKiRenderType(4);
         this.setSize(size);
@@ -359,7 +406,6 @@ public class KiWaveEntity extends AbstractKiProjectile {
         this.setFiring(false);
         this.setCastWave(castTime);
         this.setMaxLife(castTime * 2);
-        this.playInitialSound(MainSounds.KI_EXPLOSION_CHARGE.get());
         this.setCastOffsets(0.0F, 0.2F, 0.0F);
         updatePositionRelativeToOwner(owner, true);
         if (!this.level().isClientSide) {
@@ -381,7 +427,6 @@ public class KiWaveEntity extends AbstractKiProjectile {
         this.setFiring(false);
         this.setCastWave(15);
         this.setMaxLife(99999);
-        this.playInitialSound(MainSounds.KI_EXPLOSION_CHARGE.get());
         this.setCastOffsets(0.0F, 0.9F, 0.2F);
         updatePositionRelativeToOwner(owner, true);
     }
@@ -390,24 +435,64 @@ public class KiWaveEntity extends AbstractKiProjectile {
         this.setupKiMasenkoPlayer(owner, damage, speed, size, 0xFFFFFF);
     }
 
+    public void setupHeatDomePlayer(LivingEntity owner, float damage, float speed, float size) {
+        this.setKiRenderType(0);
+        this.setSize(size);
+        this.setCastSize(KiTechniqueHandler.HeatDome.CHARGE_SPHERE_SIZE);
+        this.setKiDamage(damage);
+        this.setKiSpeed(speed);
+        this.setFiring(false);
+        this.setMaxLife(99999);
+        this.setCastWave(0);
+        this.setCastOffsets(0.0F, 0.0F, 0.0F);
+        updatePositionRelativeToOwner(owner, true);
+    }
+
     public void fireHability(int finalMaxLife) {
         this.setFiring(true);
         this.setMaxLife(this.tickCount + finalMaxLife);
         this.setFireTick(this.tickCount);
 
         if (this.getOwner() instanceof LivingEntity livingOwner) {
-            updatePositionRelativeToOwner(livingOwner, false);
+            updatePositionRelativeToOwner(livingOwner, false, CameraAimHelper.resolve(livingOwner));
+            if (!this.level().isClientSide && this.isHeatDome()) {
+                KiTechniqueHandler.HeatDome.launchTarget(livingOwner, this);
+            }
         }
 
         if (this.getOwner() instanceof Player) this.triggerAnimationPacket("_fire");
     }
 
+    private boolean isHeatDome() {
+        return KiTechniqueHandler.HeatDome.is(this.getTechniqueId());
+    }
+
+    private void updateHeatDomePosition(LivingEntity owner, boolean isCasting) {
+        double y = isCasting
+                ? ownerCastCenterY(owner)
+                : owner.getY() + owner.getBbHeight() + KiTechniqueHandler.HeatDome.BEAM_HEAD_OFFSET * ownerScaleOf(owner);
+        this.setPos(owner.getX(), y, owner.getZ());
+
+        float yaw = owner.getYRot();
+        this.entityData.set(FIXED_YAW, yaw);
+        this.entityData.set(FIXED_PITCH, -90.0F);
+        this.setYRot(yaw);
+        this.setXRot(-90.0F);
+    }
+
     private void updatePositionRelativeToOwner(LivingEntity owner, boolean isCasting) {
-        Vec3 look = owner.getLookAngle();
+        updatePositionRelativeToOwner(owner, isCasting, owner.getLookAngle());
+    }
+
+    private void updatePositionRelativeToOwner(LivingEntity owner, boolean isCasting, Vec3 look) {
+        if (this.isHeatDome()) {
+            this.updateHeatDomePosition(owner, isCasting);
+            return;
+        }
         Vec3 newPos;
 
         double centerX = owner.getX();
-        double centerY = this.isContinuousFollow() ? owner.getEyeY() : owner.getY() + (owner.getBbHeight() / 2.0D);
+        double centerY = this.isContinuousFollow() ? owner.getEyeY() : ownerCastCenterY(owner);
         double centerZ = owner.getZ();
         Vec3 hitboxCenter = new Vec3(centerX, centerY, centerZ);
 
@@ -415,13 +500,14 @@ public class KiWaveEntity extends AbstractKiProjectile {
             Vec3 right = look.cross(new Vec3(0, 1, 0)).normalize();
             Vec3 up = right.cross(look).normalize();
 
-            Vec3 offset = right.scale(this.entityData.get(OFFSET_X))
-                    .add(up.scale(this.entityData.get(OFFSET_Y)))
-                    .add(look.scale(this.entityData.get(OFFSET_Z)));
+            Vec3 offset = castOffset(owner, right, up, look,
+                    this.entityData.get(OFFSET_X), this.entityData.get(OFFSET_Y), this.entityData.get(OFFSET_Z));
 
             newPos = hitboxCenter.add(offset);
         } else {
-            newPos = hitboxCenter.add(look.scale(2.5D));
+            // Clears the body first, then the same 2.2 a normal player got. Scaling the whole
+            // distance instead would fling a giant's beam origin metres away from it.
+            newPos = hitboxCenter.add(look.scale((owner.getBbWidth() / 2.0D) + 2.2D + this.castClearanceRadius()));
         }
 
         this.setPos(newPos.x, newPos.y, newPos.z);
@@ -430,10 +516,23 @@ public class KiWaveEntity extends AbstractKiProjectile {
         float exactPitch = (float) (-(Mth.atan2(look.y, horizontalDistance) * (180F / Math.PI)));
         float exactYaw = (float) (Mth.atan2(look.z, look.x) * (180F / Math.PI) - 90.0F);
 
+        float steerRate = this.getSteerRate();
+        if (steerRate > 0.0F && this.isFiring()) {
+            exactYaw = steerToward(this.getFixedYaw(), exactYaw, steerRate);
+            exactPitch = steerToward(this.getFixedPitch(), exactPitch, steerRate);
+        }
+
         this.entityData.set(FIXED_YAW, exactYaw);
         this.entityData.set(FIXED_PITCH, exactPitch);
         this.setYRot(exactYaw);
         this.setXRot(exactPitch);
+    }
+
+    private static float steerToward(float current, float target, float maxStep) {
+        float diff = Mth.wrapDegrees(target - current);
+        float distance = Math.abs(diff);
+        float step = Mth.clamp(distance * STEER_EASE, Math.min(distance, STEER_MIN_STEP), maxStep);
+        return current + Math.signum(diff) * step;
     }
 
     @Override
@@ -450,15 +549,20 @@ public class KiWaveEntity extends AbstractKiProjectile {
 
         builder.define(CONTINUOUS_FOLLOW, false);
         builder.define(IS_FIRING, false);
+        builder.define(STEER_RATE, 0.0F);
     }
 
     public float getBeamLength() { return this.entityData.get(BEAM_LENGTH); }
-    private void setBeamLength(float len) { this.entityData.set(BEAM_LENGTH, len); }
+    public void setBeamLength(float len) { this.entityData.set(BEAM_LENGTH, len); }
     public float getFixedYaw() { return this.entityData.get(FIXED_YAW); }
     public float getFixedPitch() { return this.entityData.get(FIXED_PITCH); }
     public int getCastWave() { return this.entityData.get(CAST_WAVE); }
     public void setCastWave(int ticks) { this.entityData.set(CAST_WAVE, ticks); }
-    public float getCastSize() { return this.entityData.get(CAST_SIZE); }
+    /**
+     * Cast size, scaled to the caster. The stored value is authored for a normal player, so a
+     * giant would otherwise charge a human-sized ball in a hand several times that big.
+     */
+    public float getCastSize() { return this.entityData.get(CAST_SIZE) * this.getOwnerScale(); }
     public void setCastSize(float size) { this.entityData.set(CAST_SIZE, size); }
     public void setCastOffsets(float offsetX, float offsetY, float offsetZ) {
         this.entityData.set(OFFSET_X, offsetX);
@@ -469,6 +573,8 @@ public class KiWaveEntity extends AbstractKiProjectile {
     public void setContinuousFollow(boolean follow) { this.entityData.set(CONTINUOUS_FOLLOW, follow); }
     public boolean isFiring() { return this.entityData.get(IS_FIRING); }
     public void setFiring(boolean firing) { this.entityData.set(IS_FIRING, firing); }
+    public float getSteerRate() { return this.entityData.get(STEER_RATE); }
+    public void setSteerRate(float degreesPerTick) { this.entityData.set(STEER_RATE, degreesPerTick); }
 
     @Override
     public void tick() {
@@ -476,7 +582,7 @@ public class KiWaveEntity extends AbstractKiProjectile {
         this.setDeltaMovement(0, 0, 0);
 
         int renderType = this.getKiRenderType();
-        if (renderType == 1 || renderType == 0) {
+        if ((renderType == 1 || renderType == 0) && this.getSteerRate() <= 0.0F) {
             if (this.tickCount <= 5) {
                 this.setCastOffsets(0.0F, 0.1F, 0.5F);
             } else if (this.tickCount < 15) {
@@ -550,20 +656,24 @@ public class KiWaveEntity extends AbstractKiProjectile {
                 float targetLen = currentLen + currentSpeed;
                 Vec3 tipPos = startPos.add(dir.scale(targetLen));
 
-                this.destroyBlocksAtTip(tipPos);
-
                 HitResult hitResult = this.level().clip(new ClipContext(
                         startPos.add(dir.scale(currentLen)), tipPos, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, this
                 ));
 
                 if (hitResult.getType() == HitResult.Type.BLOCK) {
-                    BlockPos hitPos = ((BlockHitResult)hitResult).getBlockPos();
+					BlockHitResult blockHit = (BlockHitResult) hitResult;
+					BlockPos hitPos = blockHit.getBlockPos();
+					Vec3 worldHit = SableCompat.projectToWorld(this.level(), blockHit.getLocation());
                     if (this.level().getBlockState(hitPos).getExplosionResistance(this.level(), hitPos, null) >= 1000) {
-                        targetLen = (float) hitResult.getLocation().distanceTo(startPos);
+						targetLen = (float) worldHit.distanceTo(startPos);
                         currentSpeed = 0.0F;
                         this.setKiSpeed(currentSpeed);
-                    }
-                }
+					} else {
+						destroyBlocksAt(hitPos);
+					}
+				} else {
+					destroyBlocksAtTip(tipPos);
+				}
 
                 this.setBeamLength(targetLen);
 
@@ -651,10 +761,13 @@ public class KiWaveEntity extends AbstractKiProjectile {
     }
 
     private boolean destroyBlocksAtTip(Vec3 tipPos) {
+		return destroyBlocksAt(BlockPos.containing(tipPos));
+	}
+
+	private boolean destroyBlocksAt(BlockPos center) {
         boolean hitSomething = false;
         float eatRadius = this.scaledDestructionRadius(this.getSize() * 3.2F);
         int bRad = Math.round(eatRadius);
-        BlockPos center = BlockPos.containing(tipPos);
         Level level = this.level();
 
         for (int x = -bRad; x <= bRad; x++) {
@@ -758,7 +871,7 @@ public class KiWaveEntity extends AbstractKiProjectile {
         for (LivingEntity target : targets) {
             if (!this.shouldDamage(target)) continue;
             if (target.is(this.getOwner())) continue;
-            if (target.invulnerableTime > 0) continue;
+            if (target.invulnerableTime > 0 && !this.isBreakthroughTarget(target)) continue;
 
             float hitPrecision = (float) cilindroRadio;
             boolean intersects = false;
@@ -771,7 +884,7 @@ public class KiWaveEntity extends AbstractKiProjectile {
             }
 
             if (intersects) {
-                boolean wasHit = this.applyDamageOrHeal(target, this.getDamagePerHit());
+                boolean wasHit = this.applyBeamHit(target);
 
                 if (wasHit) {
                     this.onSuccessfulHit(target);
@@ -793,7 +906,7 @@ public class KiWaveEntity extends AbstractKiProjectile {
     }
 
     private void explodeAndDie(Vec3 pos) {
-        float explosionRadius = this.getSize() * 5.5F;
+        float explosionRadius = this.getSize() * 4.0F;
 
         AABB damageArea = new AABB(pos, pos).inflate(explosionRadius);
         List<LivingEntity> targets = MultipartTargeting.collectTargets(this.level(), damageArea);
@@ -807,20 +920,7 @@ public class KiWaveEntity extends AbstractKiProjectile {
         if (!this.level().isClientSide) {
             BlockPos center = BlockPos.containing(pos);
 
-            float destructionRadius = this.scaledDestructionRadius(explosionRadius);
-            int blockRadius = Math.round(destructionRadius);
-            for (int x = -blockRadius; x <= blockRadius; x++) {
-                for (int y = -blockRadius; y <= blockRadius; y++) {
-                    for (int z = -blockRadius; z <= blockRadius; z++) {
-                        if (x * x + y * y + z * z <= destructionRadius * destructionRadius) {
-                            BlockPos targetPos = center.offset(x, y, z);
-                            if (this.level().getBlockState(targetPos).getExplosionResistance(this.level(), targetPos, null) < 1000) {
-                                this.setKiBlockToAir(targetPos, 2);
-                            }
-                        }
-                    }
-                }
-            }
+            this.carveKiSphere(center, this.scaledDestructionRadius(explosionRadius), 2);
 
             float visualParticleSize = explosionRadius * 2.4F;
             if (this.level() instanceof ServerLevel serverLevel) {
@@ -833,7 +933,7 @@ public class KiWaveEntity extends AbstractKiProjectile {
 
                 KiExplosionVisualEntity explosionVisual = new KiExplosionVisualEntity(MainEntities.KI_EXPLOSION_VISUAL.get(), this.level());
                 explosionVisual.setPos(pos.x, pos.y - 0.5, pos.z);
-                explosionVisual.setupExplosion(this.getColor(), this.getColorBorder(), this.getColorOutline(), this.getSize() * 2.5F);
+                explosionVisual.setupExplosion(this.getColor(), this.getColorBorder(), this.getColorOutline(), this.getSize() * 1.8F);
                 this.level().addFreshEntity(explosionVisual);
             }
         }

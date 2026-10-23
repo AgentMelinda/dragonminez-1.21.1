@@ -1,11 +1,13 @@
 import java.net.URI
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
+import groovy.json.JsonSlurper
 
 plugins {
     java
     idea
     id("net.neoforged.moddev") version "2.0.143"
+    id("io.github.goooler.shadow") version "8.1.8"
 }
 
 /** Fail-fast property access (keeps the build deterministic and debuggable). */
@@ -76,6 +78,7 @@ val clientRunRequested = requestedTasks.any { it.contains("runclient") }
 val includeClientOnlyDevMods = providers.gradleProperty("includeClientOnlyDevMods")
     .map { it.toBoolean() }
     .orElse(clientRunRequested)
+val serverGameDirectory = providers.gradleProperty("serverGameDirectory").orElse("run")
 
 neoForge {
     version = neoVersion
@@ -94,7 +97,7 @@ neoForge {
         }
         register("server") {
             server()
-            gameDirectory = file("run")
+            gameDirectory = file(serverGameDirectory.get())
             programArgument("--nogui")
             systemProperty("neoforge.enabledGameTestNamespaces", modId)
             systemProperty("geckolib.disable_examples", "true")
@@ -124,6 +127,11 @@ neoForge {
         register(modId) {
             sourceSet(sourceSets.main.get())
         }
+    }
+
+    unitTest {
+        testedMod = mods[modId]
+        enable()
     }
 }
 
@@ -157,6 +165,11 @@ repositories {
 // Optional runtime-only configuration (not published as a hard dependency).
 val localRuntime by configurations.creating
 configurations.named("runtimeClasspath") { extendsFrom(localRuntime) }
+val mariaRelocation by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+    isTransitive = false
+}
 
 dependencies {
     // Mandatory libraries — coordinates verified on official Maven metadata (HTTP 200).
@@ -165,13 +178,13 @@ dependencies {
     compileOnly("top.theillusivec4.curios:curios-neoforge:$curiosVersion:api")
     runtimeOnly("top.theillusivec4.curios:curios-neoforge:$curiosVersion")
 
-    // Lombok removed: sources were delomboked for NeoForge/ModDevGradle reliability.
 
     // Database libraries (pure Java; jar-in-jar for distribution).
     // Exclude HikariCP's slf4j pin so it does not fight Minecraft's strictly 2.0.9.
     // Versions verified on Maven Central (same pins as pre-port project).
     compileOnly("org.mariadb.jdbc:mariadb-java-client:3.5.9")
     jarJar("org.mariadb.jdbc:mariadb-java-client:3.5.9")
+    add(mariaRelocation.name, "org.mariadb.jdbc:mariadb-java-client:3.5.9")
     compileOnly("com.zaxxer:HikariCP:7.1.0") {
         exclude(group = "org.slf4j", module = "slf4j-api")
     }
@@ -181,6 +194,7 @@ dependencies {
 
     testImplementation("org.junit.jupiter:junit-jupiter:6.1.0")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testImplementation("top.theillusivec4.curios:curios-neoforge:$curiosVersion:api")
 
     // JEI API only (optional compile). Full JEI for client runs is optional localRuntime.
     compileOnly("mezz.jei:jei-$minecraftVersion-common-api:$jeiVersion")
@@ -195,19 +209,80 @@ sourceSets.main {
     resources.srcDir("src/generated/resources/")
 }
 
+fun validateJsonFiles(files: Collection<File>, label: String) {
+    val failures = mutableListOf<String>()
+    files.asSequence()
+        .filter { it.isFile && it.extension.equals("json", ignoreCase = true) }
+        .sortedBy { it.invariantSeparatorsPath }
+        .forEach { file ->
+            try {
+                JsonSlurper().parse(file)
+            } catch (exception: Exception) {
+                failures += "${file.relativeTo(projectDir).invariantSeparatorsPath}: ${exception.message}"
+            }
+        }
+    if (failures.isNotEmpty()) {
+        throw GradleException("Malformed JSON in $label:\n" + failures.joinToString("\n"))
+    }
+}
+
+val sourceJsonFiles = files(
+    fileTree("src/main/resources") { include("**/*.json") },
+    fileTree("src/generated/resources") { include("**/*.json") }
+)
+
+val validateJsonResources by tasks.registering {
+    group = "verification"
+    description = "Parses every JSON file in the source and generated resource roots."
+    inputs.files(sourceJsonFiles)
+    doLast { validateJsonFiles(sourceJsonFiles.files, "resource source roots") }
+}
+
 val generatedResourcesDir = layout.projectDirectory.dir("src/generated/resources")
 val copyGeneratedResourcesToOutput by tasks.registering(Copy::class) {
-    // Do not force runData on every jar build during the port; include generated tree if present.
+    // Datagen runs before release packaging so clean checkouts do not silently
+    // omit DMZ's dimensions, biomes, structures, recipes and registry tags.
     from(generatedResourcesDir) {
         exclude(".cache/**")
     }
     into(layout.buildDirectory.dir("resources/main"))
+    includeEmptyDirs = false
     onlyIf { generatedResourcesDir.asFile.exists() }
+}
+val generateReleaseData = tasks.named("runData")
+copyGeneratedResourcesToOutput.configure {
+    mustRunAfter(generateReleaseData)
+}
+
+val validateGeneratedJsonAfterData by tasks.registering {
+    group = "verification"
+    description = "Parses generated JSON after runData completes."
+    dependsOn(generateReleaseData)
+    mustRunAfter(generateReleaseData)
+    val generatedJson = fileTree(generatedResourcesDir) { include("**/*.json") }
+    inputs.files(generatedJson)
+    doLast { validateJsonFiles(generatedJson.files, "post-datagen resources") }
+}
+
+val validateProcessedJson by tasks.registering {
+    group = "verification"
+    description = "Parses every processed JSON resource immediately before packaging."
+    dependsOn("processResources", copyGeneratedResourcesToOutput)
+    mustRunAfter(copyGeneratedResourcesToOutput)
+    val processedJson = fileTree(layout.buildDirectory.dir("resources/main")) { include("**/*.json") }
+    inputs.files(processedJson)
+    doLast { validateJsonFiles(processedJson.files, "processed resources") }
 }
 
 tasks.named<Jar>("jar").configure {
-    dependsOn(copyGeneratedResourcesToOutput)
+    dependsOn(generateReleaseData, copyGeneratedResourcesToOutput, validateGeneratedJsonAfterData, validateProcessedJson)
     archiveClassifier.set("")
+}
+
+tasks.named<Jar>("sourcesJar").configure {
+    // Four critical spawn tags are also kept in src/main/resources so clean
+    // development runs work before datagen; avoid duplicating them in sources.
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
 //Helps with some AI Run Tests
@@ -228,8 +303,10 @@ val terrablenderVersionRange = requiredProp("terrablender_version_range")
 val curiosVersionRange = requiredProp("curios_version_range")
 
 tasks.named<ProcessResources>("processResources").configure {
+    dependsOn(validateJsonResources)
     filteringCharset = "UTF-8"
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    includeEmptyDirs = false
 
     val replaceProperties = mapOf(
         "minecraft_version" to minecraftVersion,
@@ -258,15 +335,15 @@ tasks.named<ProcessResources>("processResources").configure {
 
 // ============================================================================
 // Resource optimization via PackSquash (https://github.com/ComunidadAylas/PackSquash)
-// Opt-in: CI by default; locally off. Force with -PoptimizeResources=true|false.
+// Enabled by default for release-sized artifacts. Override with
+// -PoptimizeResources=false only when iterating on raw resource output.
 // ============================================================================
 val packSquashVersion = "v0.4.1"
 
 val optimizeResourcesEnabled: Provider<Boolean> =
     providers.gradleProperty("optimizeResources")
         .map { it.toBoolean() }
-        .orElse(providers.environmentVariable("CI").map { it.equals("true", ignoreCase = true) || it == "1" })
-        .orElse(false)
+        .orElse(true)
 
 /** Escapes a path into a TOML basic string. */
 fun tomlString(value: String): String =
@@ -369,6 +446,26 @@ val optimizeResources by tasks.registering {
 
 tasks.named<Jar>("jar").configure { dependsOn(optimizeResources) }
 
+// Youer ships MariaDB packages inside LibrariesVault. Relocate our Connector/J
+// packages in-place before the normal jar is assembled so one artifact works on
+// both standard NeoForge and hybrid servers without a JPMS split-package failure.
+val relocateMariaDb by tasks.registering(com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar::class) {
+    group = "build"
+    description = "Relocates the bundled MariaDB driver to avoid hybrid-server module conflicts."
+    dependsOn("jarJar")
+    configurations = listOf(mariaRelocation)
+    archiveFileName.set("mariadb-java-client-3.5.9.jar")
+    destinationDirectory.set(layout.buildDirectory.dir("generated/jarJar/META-INF/jarjar"))
+    relocate("org.mariadb.jdbc", "com.dragonminez.libs.mariadb.jdbc")
+    mergeServiceFiles()
+    exclude("module-info.class")
+    exclude("META-INF/versions/**/module-info.class")
+    manifest {
+        attributes["Automatic-Module-Name"] = "com.dragonminez.mariadb"
+    }
+}
+tasks.named<Jar>("jar").configure { dependsOn(relocateMariaDb) }
+
 /**
  * Optional manifest timestamp
  * Enable with: -PincludeTimestamp=true
@@ -391,7 +488,7 @@ tasks.withType<Jar>().configureEach {
             "Implementation-Title" to project.name,
             "Implementation-Version" to project.version.toString(),
             "Implementation-Vendor" to modAuthors,
-            "MixinConfigs" to "dragonminez.mixins.json"
+            "MixinConfigs" to "dragonminez.mixins.json,dragonminez.sable.mixins.json"
         )
 
         if (includeTimestamp.get()) {

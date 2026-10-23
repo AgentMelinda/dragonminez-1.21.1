@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*.*.*'
+      - '1.21.1-v*'
   workflow_dispatch:
 
 jobs:

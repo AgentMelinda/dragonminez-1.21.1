@@ -28,12 +28,12 @@ public class PlayerEffectQueue {
 		AURA_QUEUE.add(new AuraRenderEntry(player, playerModel, new Matrix4f(currentStack.last().pose()), partialTick, packedLight));
 	}
 
-	public static synchronized void addSpark(AbstractClientPlayer player, BakedGeoModel playerModel, PoseStack currentStack, float partialTick, int packedLight) {
-		SPARK_QUEUE.add(new SparkRenderEntry(player, playerModel, new Matrix4f(currentStack.last().pose()), partialTick, packedLight));
-	}
-
 	public static synchronized void addWeapon(AbstractClientPlayer player, BakedGeoModel playerModel, PoseStack currentStack, String weaponType, float[] color, float partialTick, int packedLight) {
 		WEAPON_QUEUE.add(new WeaponRenderEntry(player, playerModel, new Matrix4f(currentStack.last().pose()), weaponType, color, partialTick, packedLight));
+	}
+
+	public static synchronized void addSpark(AbstractClientPlayer player, BakedGeoModel playerModel, PoseStack currentStack, float partialTick, int packedLight) {
+		SPARK_QUEUE.add(new SparkRenderEntry(player, playerModel, new Matrix4f(currentStack.last().pose()), partialTick, packedLight));
 	}
 
 	public static synchronized void addFirstPersonAura(AbstractClientPlayer player, PoseStack currentStack, float partialTick, int packedLight) {
@@ -55,17 +55,17 @@ public class PlayerEffectQueue {
 		return copy;
 	}
 
-	public static synchronized List<SparkRenderEntry> getAndClearSparks() {
-		if (SPARK_QUEUE.isEmpty()) return new ArrayList<>();
-		List<SparkRenderEntry> copy = new ArrayList<>(SPARK_QUEUE);
-		SPARK_QUEUE.clear();
-		return copy;
-	}
-
 	public static synchronized List<WeaponRenderEntry> getAndClearWeapons() {
 		if (WEAPON_QUEUE.isEmpty()) return new ArrayList<>();
 		List<WeaponRenderEntry> copy = new ArrayList<>(WEAPON_QUEUE);
 		WEAPON_QUEUE.clear();
+		return copy;
+	}
+
+	public static synchronized List<SparkRenderEntry> getAndClearSparks() {
+		if (SPARK_QUEUE.isEmpty()) return new ArrayList<>();
+		List<SparkRenderEntry> copy = new ArrayList<>(SPARK_QUEUE);
+		SPARK_QUEUE.clear();
 		return copy;
 	}
 
