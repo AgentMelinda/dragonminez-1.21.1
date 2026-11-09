@@ -89,7 +89,7 @@ public class PlayerEffectsRenderHandler {
 				mc.getMainRenderTarget().bindWrite(false);
 				renderWeapons(mc, event);
 				renderEffects(mc, event);
-				TransformationPostShaderManager.processShaderpackOutline(event.getPartialTick().getGameTimeDeltaPartialTick(false));
+				TransformationPostShaderManager.processShaderpackOutline(event.getPartialTick().getGameTimeDeltaPartialTick(false), event.getModelViewMatrix());
 			}
 			return;
 		}
@@ -110,8 +110,19 @@ public class PlayerEffectsRenderHandler {
 	private static void renderWeapons(Minecraft mc, RenderLevelStageEvent event) {
 		MultiBufferSource.BufferSource buffers = mc.renderBuffers().bufferSource();
 		PoseStack poseStack = event.getPoseStack();
-		KiWeaponRenderer.processWeapons(buffers, poseStack);
+		// Queued weapon vertices include the entity render's model-view transform.
+		// Flush existing world geometry before drawing those vertices with identity.
 		buffers.endBatch();
+		var modelView = RenderSystem.getModelViewStack();
+		modelView.pushMatrix().identity();
+		RenderSystem.applyModelViewMatrix();
+		try {
+			KiWeaponRenderer.processWeapons(buffers, poseStack);
+			buffers.endBatch();
+		} finally {
+			modelView.popMatrix();
+			RenderSystem.applyModelViewMatrix();
+		}
 	}
 
 	@SuppressWarnings("unchecked")

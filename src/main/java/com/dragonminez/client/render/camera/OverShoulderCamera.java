@@ -4,7 +4,7 @@ import com.dragonminez.Reference;
 import com.dragonminez.client.clash.BeamClashCinematicCamera;
 import com.dragonminez.client.events.FlySkillEvent;
 import com.dragonminez.client.events.LockOnEvent;
-import com.dragonminez.client.flight.RollCamera;
+import com.dragonminez.client.render.CameraProjectionCapture;
 import com.dragonminez.common.combat.logic.player.TargetHelper;
 import com.dragonminez.common.combat.util.Minecraft_DMZ;
 import com.dragonminez.common.config.ConfigManager;
@@ -22,18 +22,16 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.ProjectileUtil;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
-import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
-import org.joml.Matrix4f;
 import org.joml.Vector3f;
-import org.joml.Vector4f;
 
 @EventBusSubscriber(modid = Reference.MOD_ID, bus = EventBusSubscriber.Bus.GAME, value = Dist.CLIENT)
 public final class OverShoulderCamera {
@@ -62,6 +60,8 @@ public final class OverShoulderCamera {
 	private static boolean active;
 	private static boolean previewOverride;
 	private static boolean decoupled;
+	private static LocalPlayer aimingPlayer;
+	private static Level aimingLevel;
 	private static float cameraYaw;
 	private static float cameraPitch;
 	private static float writtenYaw;
@@ -76,10 +76,6 @@ public final class OverShoulderCamera {
 	private static Entity aimEntity;
 	private static boolean aimEntityLockable;
 	private static double lookDistance = -1.0;
-	private static final Matrix4f PROJECTION = new Matrix4f();
-	private static final Matrix4f VIEW = new Matrix4f();
-	private static Vec3 projectionCamera = Vec3.ZERO;
-	private static boolean projectionReady;
 	private static double crosshairFocus;
 	private static float crosshairCentring;
 	private static long lastCrosshairNanos;
@@ -116,6 +112,11 @@ public final class OverShoulderCamera {
 	}
 
 	public static void beforeSetup(LocalPlayer player, float partialTick) {
+		if (aimingPlayer != player || aimingLevel != player.level()) {
+			resetAim();
+			aimingPlayer = player;
+			aimingLevel = player.level();
+		}
 		long now = System.nanoTime();
 		double dt = lastFrameNanos == 0L ? 0.0 : Mth.clamp((now - lastFrameNanos) / 1.0E9, 0.0, MAX_FRAME_SECONDS);
 		lastFrameNanos = now;
@@ -124,6 +125,8 @@ public final class OverShoulderCamera {
 				decoupled = false;
 				writeRotation(player, cameraYaw, cameraPitch);
 			}
+			resetCrosshair();
+			lastFrameNanos = 0L;
 			return;
 		}
 		if (!decoupled) {
@@ -135,7 +138,10 @@ public final class OverShoulderCamera {
 			targetFocus = 0.0;
 			lockYaw = 0.0F;
 			lockPitch = 0.0F;
-			crosshairPlaced = false;
+			aimEntity = null;
+			aimEntityLockable = false;
+			lookDistance = -1.0;
+			resetCrosshair();
 		} else {
 			cameraYaw += player.getYRot() - writtenYaw;
 			cameraPitch = Mth.clamp(cameraPitch + player.getXRot() - writtenPitch, -90.0F, 90.0F);
@@ -197,13 +203,13 @@ public final class OverShoulderCamera {
 
 	@SubscribeEvent
 	public static void onClientTick(ClientTickEvent.Post event) {
-		if (!decoupled) return;
 		Minecraft mc = Minecraft.getInstance();
 		LocalPlayer player = mc.player;
-		if (player == null || player.level() == null) {
-			decoupled = false;
+		if (player == null || player.level() != mc.level || player != aimingPlayer || aimingLevel != mc.level) {
+			resetAim();
 			return;
 		}
+		if (!decoupled) return;
 		Vec3 eye = player.getEyePosition();
 		Vec3 forward = Vec3.directionFromRotation(cameraPitch, cameraYaw);
 		Vec3 camera = cameraPosition(eye);
@@ -233,26 +239,36 @@ public final class OverShoulderCamera {
 		return TargetHelper.getRelation(player, target) == TargetHelper.Relation.HOSTILE;
 	}
 
-	@SubscribeEvent
-	public static void onRenderLevelStage(RenderLevelStageEvent event) {
-		if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_SKY) return;
-		Camera camera = event.getCamera();
-		PROJECTION.set(event.getProjectionMatrix());
-		VIEW.identity().rotateZ(((RollCamera) camera).dragonminez$getRoll() * Mth.DEG_TO_RAD).rotateX(camera.getXRot() * Mth.DEG_TO_RAD).rotateY((camera.getYRot() + 180.0F) * Mth.DEG_TO_RAD);
-		projectionCamera = camera.getPosition();
-		projectionReady = true;
+	private static void resetCrosshair() {
+		crosshairPlaced = false;
+		lastCrosshairNanos = 0L;
+		crosshairFocus = 0.0;
+		crosshairCentring = 0.0F;
+	}
+
+	private static void resetAim() {
+		decoupled = false;
+		aimingPlayer = null;
+		aimingLevel = null;
+		active = false;
+		aimEntity = null;
+		aimEntityLockable = false;
+		lookDistance = -1.0;
+		appliedMove = Vec3.ZERO;
+		lastFrameNanos = 0L;
+		resetCrosshair();
 	}
 
 	public static float[] crosshairOffset(int guiWidth, int guiHeight) {
+		Minecraft mc = Minecraft.getInstance();
+		LocalPlayer player = mc.player;
+		if (!decoupled || player == null || player != aimingPlayer || !CameraProjectionCapture.isAvailable()) {
+			resetCrosshair();
+			return new float[] {0.0F, 0.0F};
+		}
 		long now = System.nanoTime();
 		double dt = lastCrosshairNanos == 0L ? 0.0 : Math.min(MAX_FRAME_SECONDS, (now - lastCrosshairNanos) / 1.0E9);
 		lastCrosshairNanos = now;
-		Minecraft mc = Minecraft.getInstance();
-		LocalPlayer player = mc.player;
-		if (!decoupled || player == null || !projectionReady) {
-			crosshairPlaced = false;
-			return new float[] {0.0F, 0.0F};
-		}
 		float partialTick = mc.getTimer().getGameTimeDeltaPartialTick(false);
 		Vec3 eye = player.getEyePosition(partialTick);
 		HitResult pick = mc.hitResult;
@@ -269,13 +285,12 @@ public final class OverShoulderCamera {
 			crosshairCentring += ((centre ? 1.0F : 0.0F) - crosshairCentring) * (float) (1.0 - Math.exp(-dt * CROSSHAIR_CENTRE_RATE));
 		}
 		Vec3 point = eye.add(Vec3.directionFromRotation(writtenPitch, writtenYaw).scale(1.0 / crosshairFocus));
-		Vector4f clip = new Vector4f((float) (point.x - projectionCamera.x), (float) (point.y - projectionCamera.y), (float) (point.z - projectionCamera.z), 1.0F);
-		VIEW.transform(clip);
-		PROJECTION.transform(clip);
-		if (clip.w <= 1.0E-4F) return new float[] {0.0F, 0.0F};
+		// Share the actual renderer view (including camera effects) in both aim modes.
+		float[] screen = new float[4];
+		if (!CameraProjectionCapture.project(point, guiWidth, guiHeight, screen)) return new float[] {0.0F, 0.0F};
 		float keep = 1.0F - crosshairCentring;
-		float x = Mth.clamp(clip.x / clip.w, -1.0F, 1.0F) * guiWidth * 0.5F * keep;
-		float y = -Mth.clamp(clip.y / clip.w, -1.0F, 1.0F) * guiHeight * 0.5F * keep;
+		float x = Mth.clamp(screen[2], -1.0F, 1.0F) * guiWidth * 0.5F * keep;
+		float y = -Mth.clamp(screen[3], -1.0F, 1.0F) * guiHeight * 0.5F * keep;
 		double scale = mc.getWindow().getGuiScale();
 		return new float[] {(float) (Math.round(x * scale) / scale), (float) (Math.round(y * scale) / scale)};
 	}
