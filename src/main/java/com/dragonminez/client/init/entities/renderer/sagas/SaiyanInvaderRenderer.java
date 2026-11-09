@@ -44,6 +44,8 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 
 public class SaiyanInvaderRenderer<T extends DBSagasEntity & SagaSaiyanInvadersEntity.Invader> extends EntityRenderer<T> {
 
@@ -97,7 +99,9 @@ public class SaiyanInvaderRenderer<T extends DBSagasEntity & SagaSaiyanInvadersE
 			puppet.broken = true;
 			if (!failureLogged) {
 				failureLogged = true;
-				LogUtil.error(Env.CLIENT, "Saiyan invader could not be drawn with the player renderer, using the saga model instead: {}", e.toString());
+				StringWriter stack = new StringWriter();
+				e.printStackTrace(new PrintWriter(stack));
+				LogUtil.error(Env.CLIENT, "Saiyan invader could not be drawn with the player renderer, using the saga model instead: {}\n{}", e.toString(), stack.toString());
 			}
 		} finally {
 			if (border != null) AuraBorderRenderer.end(border);

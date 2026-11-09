@@ -94,6 +94,18 @@ public class DMZPlayerRenderer<T extends AbstractClientPlayer & GeoAnimatable> e
 		this.addRenderLayer(new DMZThirdPartyLayerForwarder<>(this));
 	}
 
+	@Override
+	public VertexConsumer checkAndRefreshBuffer(boolean isReRender, VertexConsumer buffer, MultiBufferSource bufferSource, RenderType renderType) {
+		// GeckoLib can inspect BufferBuilder and its own composite consumers for
+		// stale batches, but cannot see through custom MultiBufferSource wrappers.
+		// Reacquire the consumer per bone when a wrapper is involved so each bone
+		// writes into the currently active batch instead of a completed builder.
+		if (!isReRender && !(bufferSource instanceof MultiBufferSource.BufferSource)) {
+			return bufferSource.getBuffer(renderType);
+		}
+		return super.checkAndRefreshBuffer(isReRender, buffer, bufferSource, renderType);
+	}
+
 	public void reRender(GeoRenderLayer<T> calledFrom, BakedGeoModel model, PoseStack poseStack, MultiBufferSource bufferSource,
 						 T animatable, RenderType renderType, VertexConsumer buffer, float partialTick,
 						 int packedLight, int packedOverlay, int colour) {

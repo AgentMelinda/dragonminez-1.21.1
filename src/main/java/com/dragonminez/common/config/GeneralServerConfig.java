@@ -485,7 +485,7 @@ public class GeneralServerConfig {
 		// Long, not Integer: server owners set this well past Integer.MAX_VALUE (10000000000 is a
 		// real value in the wild). As an Integer, Gson aborts the whole parse with
 		// "Expected an int but was 10000000000", which takes the entire synced config down with it.
-		private Long maxValue = 10000L;
+		private Long maxValue = 1_000_000L;
 		private Double vitCurveKnee = 16000.0;
 		private Double defCurveKnee = 20000.0;
 		private CapsulesConfig capsules = new CapsulesConfig();
@@ -524,6 +524,7 @@ public class GeneralServerConfig {
 		private Boolean ultimateFormFixedValue = false;
 		private Integer partyMaxMembers = -1;
 		private Integer partyMaxLevelGap = 500;
+		private Integer partyQuestShareRange = 256;
 		private Double partyTpShareRatio = 0.5;
 		private Double enemyHealthPerPartyPlayer = 1.25;
 		private Double enemyDamagePerPartyPlayer = 1.1;
@@ -662,7 +663,7 @@ public class GeneralServerConfig {
 		}
 
 		public Integer getMaxValue() {
-			return (int) Math.max(1000L, Math.min(maxValue != null ? maxValue : 10000L, Integer.MAX_VALUE));
+			return (int) Math.max(1000L, Math.min(maxValue != null ? maxValue : 1_000_000L, Integer.MAX_VALUE));
 		}
 
 		public Boolean getMaxLevelValueInsteadOfStats() {
@@ -771,6 +772,10 @@ public class GeneralServerConfig {
 		public Integer getPartyMaxMembers() {
 			if (partyMaxMembers == null) return -1;
 			return partyMaxMembers < -1 ? -1 : partyMaxMembers;
+		}
+
+		public Integer getPartyQuestShareRange() {
+			return partyQuestShareRange != null ? Math.max(1, partyQuestShareRange) : 256;
 		}
 
 		public Integer getPartyMaxLevelGap() {
